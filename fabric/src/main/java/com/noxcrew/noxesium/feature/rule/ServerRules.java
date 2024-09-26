@@ -1,5 +1,6 @@
 package com.noxcrew.noxesium.feature.rule;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.noxcrew.noxesium.NoxesiumMod;
 import com.noxcrew.noxesium.api.protocol.rule.ServerRuleIndices;
 import com.noxcrew.noxesium.feature.rule.impl.BooleanServerRule;
@@ -8,8 +9,13 @@ import com.noxcrew.noxesium.feature.rule.impl.EnableMusicRule;
 import com.noxcrew.noxesium.feature.rule.impl.IntegerServerRule;
 import com.noxcrew.noxesium.feature.rule.impl.ItemStackListServerRule;
 import com.noxcrew.noxesium.feature.rule.impl.ItemStackServerRule;
+import com.noxcrew.noxesium.feature.rule.impl.OptionalEnumServerRule;
 import com.noxcrew.noxesium.feature.rule.impl.QibBehaviorServerRule;
+import net.minecraft.client.GraphicsStatus;
+import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.ItemStack;
+
+import java.util.Optional;
 
 /**
  * A class that stores all known server rules. Similar to game rules but slightly more powerful
@@ -34,9 +40,9 @@ public class ServerRules {
     public static ClientServerRule<Boolean> CAMERA_LOCKED = register(new CameraLockedRule(ServerRuleIndices.CAMERA_LOCKED));
 
     /**
-     * Whether custom music is being used. When enabled vanilla background music is fully disabled.
+     * When enabled vanilla background music is fully disabled.
      */
-    public static ClientServerRule<Boolean> ENABLE_CUSTOM_MUSIC = register(new EnableMusicRule(ServerRuleIndices.DISABLE_VANILLA_MUSIC));
+    public static ClientServerRule<Boolean> DISABLE_VANILLA_MUSIC = register(new EnableMusicRule(ServerRuleIndices.DISABLE_VANILLA_MUSIC));
 
     /**
      * When true, disables boat collision on the client side, useful for movement games involving
@@ -77,6 +83,37 @@ public class ServerRules {
      * These behaviors are defined globally to avoid large amounts of data sending.
      */
     public static QibBehaviorServerRule QIB_BEHAVIORS = register(new QibBehaviorServerRule(ServerRuleIndices.QIB_BEHAVIORS));
+
+    /**
+     * Allows the server to override the graphics mode used by the client.
+     */
+    public static OptionalEnumServerRule<GraphicsStatus> OVERRIDE_GRAPHICS_MODE = register(new OptionalEnumServerRule<>(ServerRuleIndices.OVERRIDE_GRAPHICS_MODE, GraphicsStatus.class, Optional.empty(), () -> {
+        // We need to call this whenever we change the display type.
+        if (Minecraft.getInstance().levelRenderer != null) {
+            if (RenderSystem.isOnRenderThread()) {
+                Minecraft.getInstance().levelRenderer.allChanged();
+            } else {
+                RenderSystem.recordRenderCall(() -> {
+                    Minecraft.getInstance().levelRenderer.allChanged();
+                });
+            }
+        }
+    }));
+
+    /**
+     * Enables a custom smoother riptide trident implementation. Requires server-side adjustments.
+     */
+    public static ClientServerRule<Boolean> ENABLE_SMOOTHER_CLIENT_TRIDENT = register(new BooleanServerRule(ServerRuleIndices.ENABLE_SMOOTHER_CLIENT_TRIDENT, false));
+
+    /**
+     * Disables the map showing as a UI element. Can be used to hide it during loading screens.
+     */
+    public static ClientServerRule<Boolean> DISABLE_MAP_UI = register(new BooleanServerRule(ServerRuleIndices.DISABLE_MAP_UI, false));
+
+    /**
+     * Sets the amount of ticks the riptide has coyote time for.
+     */
+    public static ClientServerRule<Integer> RIPTIDE_COYOTE_TIME = register(new IntegerServerRule(ServerRuleIndices.RIPTIDE_COYOTE_TIME, 5));
 
     /**
      * Registers a new server rule.

@@ -20,12 +20,16 @@
       "com.noxcrew.noxesium.NoxesiumMod"
     ],
     "main": [
+    ],
+    "modmenu": [
+      "com.noxcrew.noxesium.integration.ModMenuIntegration"
     ]
   },
   "accessWidener": "noxesium.accesswidener",
   "custom": {
     "loom:injected_interfaces": {
-      "net/minecraft/world/entity/Entity": ["com/noxcrew/noxesium/feature/entity/ExtraEntityDataHolder"]
+      "net/minecraft/world/entity/Entity": ["com/noxcrew/noxesium/feature/entity/ExtraEntityDataHolder"],
+      "net/minecraft/world/entity/LivingEntity": ["com/noxcrew/noxesium/feature/entity/LivingEntityExtension"]
     }
   },
   "mixins": [
@@ -39,10 +43,11 @@
     "minecraft": ">=1.21"
   },
   "suggests": {
-    "sodium": ">=0.5.9",
-    "iris": ">=1.7.1"
+    "sodium": ">=0.6.0-beta.1",
+    "iris": ">=1.8.0-beta.3"
   },
   "breaks": {
-    "optifabric": "*"
+    "optifabric": "*",
+    "sodium": "<0.6.0-beta.1"
   }
 }

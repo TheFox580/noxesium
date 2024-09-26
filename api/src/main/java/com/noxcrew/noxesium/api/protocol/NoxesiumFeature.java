@@ -70,6 +70,22 @@ public enum NoxesiumFeature {
      * Added support for the extra entity data system.
      */
     EXTRA_ENTITY_DATA_SYSTEM(7),
+    /**
+     * Added support to let the server decide the Graphics options.
+     */
+    SERVER_DECIDES_GRAPHICS(8),
+    /**
+     * Finalised client qib feature to make it functional.
+     */
+    STABLE_CLIENT_QIBS(9),
+    /**
+     * Various bugfixes to client qib feature.
+     */
+    BUGFIXED_CLIENT_QIBS(10),
+    /**
+     * Fixes serialization of item stacks in rules.
+     */
+    FIXED_ITEM_STACK_SERIALIZATION(11),
     ;
 
     private final int minProtocolVersion;

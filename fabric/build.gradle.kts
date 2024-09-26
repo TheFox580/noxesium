@@ -1,5 +1,5 @@
 plugins {
-    id("fabric-loom") version "1.6-SNAPSHOT"
+    id("fabric-loom") version "1.7-SNAPSHOT"
 }
 
 repositories {
@@ -17,6 +17,7 @@ repositories {
     }
     maven { url = uri("https://maven.shedaniel.me/") }
     maven { url = uri("https://maven.terraformersmc.com/releases/") }
+    maven { url = uri("https://maven.enginehub.org/repo/") }
     mavenCentral()
 }
 
@@ -36,10 +37,14 @@ dependencies {
     }
 
     // Use an updated version of mixin extras so we can use WrapMethod
-    annotationProcessor("io.github.llamalad7:mixinextras-fabric:0.4.0-beta.2")?.apply {
+    annotationProcessor("io.github.llamalad7:mixinextras-fabric:0.4.1")?.apply {
         include(this)
         implementation(this)
     }
+
+    // Add PRTree which we use for collision detection
+    include("org.khelekore:prtree:1.5")
+    implementation("org.khelekore:prtree:1.5")
 
     // Compatibility with other mods
     if (property("enableSodium") == "true") {
@@ -47,6 +52,11 @@ dependencies {
     }
     if (property("enableIris") == "true") {
         modImplementation("maven.modrinth:iris:${property("iris")}") {
+            isTransitive = false
+        }
+    }
+    if (property("enableModMenu") == "true") {
+        modImplementation("com.terraformersmc:modmenu:${property("modmenu")}") {
             isTransitive = false
         }
     }

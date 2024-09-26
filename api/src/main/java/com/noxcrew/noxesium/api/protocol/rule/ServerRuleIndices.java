@@ -75,4 +75,37 @@ public class ServerRuleIndices {
      * These behaviors are defined globally to avoid large amounts of data sending.
      */
     public static final int QIB_BEHAVIORS = 13;
+
+    /**
+     * Allows the server to override the graphics mode used by the client.
+     */
+    public static final int OVERRIDE_GRAPHICS_MODE = 14;
+
+    /**
+     * Enables Noxesium patches to the trident which make it entirely client-sided
+     * allowing for additional smoothness. The following changes need to be made
+     * server side to support this:
+     * - Remove the release using code on the server-side for players.
+     * - Replace logic to detect when a player riptides with listening to the `riptide` packet.
+     * - Do not send the client updates about its own pose.
+     * - Ignore all logic about using the auto spin attack as an attack.
+     * - Add a sound effect called noxesium:trident.ready_indicator.
+     *
+     * The effects this setting has:
+     * - Makes the sound effect and camera POV (pose) change client-side
+     * - Adds an indicator sound when the trident has been charged enough
+     * - Adds coyote time to releasing the trident when briefly not in water
+     * - Changes held item renderer to have less motion when riptiding
+     */
+    public static final int ENABLE_SMOOTHER_CLIENT_TRIDENT = 15;
+
+    /**
+     * Disables the map showing as a UI element. Can be used to hide it during loading screens.
+     */
+    public static final int DISABLE_MAP_UI = 16;
+
+    /**
+     * Sets the amount of ticks the riptide has coyote time for.
+     */
+    public static final int RIPTIDE_COYOTE_TIME = 17;
 }

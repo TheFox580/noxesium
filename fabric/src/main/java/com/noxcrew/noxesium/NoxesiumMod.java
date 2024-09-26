@@ -1,14 +1,19 @@
 package com.noxcrew.noxesium;
 
 import com.google.common.base.Preconditions;
+import com.mojang.blaze3d.shaders.Program;
 import com.noxcrew.noxesium.api.protocol.ClientSettings;
 import com.noxcrew.noxesium.api.protocol.ProtocolVersion;
 import com.noxcrew.noxesium.config.NoxesiumConfig;
 import com.noxcrew.noxesium.feature.TeamGlowHotkeys;
+import com.noxcrew.noxesium.feature.entity.ExtraEntityData;
 import com.noxcrew.noxesium.feature.entity.ExtraEntityDataModule;
 import com.noxcrew.noxesium.feature.entity.QibBehaviorModule;
+import com.noxcrew.noxesium.feature.entity.SpatialDebuggingModule;
+import com.noxcrew.noxesium.feature.entity.SpatialInteractionEntityTree;
 import com.noxcrew.noxesium.feature.model.CustomServerCreativeItems;
 import com.noxcrew.noxesium.feature.rule.ServerRuleModule;
+import com.noxcrew.noxesium.feature.rule.ServerRules;
 import com.noxcrew.noxesium.feature.skull.SkullFontModule;
 import com.noxcrew.noxesium.feature.sounds.NoxesiumSoundModule;
 import com.noxcrew.noxesium.feature.ui.NoxesiumReloadListener;
@@ -18,20 +23,31 @@ import com.noxcrew.noxesium.network.serverbound.ServerboundClientInformationPack
 import com.noxcrew.noxesium.network.serverbound.ServerboundClientSettingsPacket;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.C2SPlayChannelEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+import net.fabricmc.fabric.api.resource.SimpleResourceReloadListener;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.util.profiling.ProfilerFiller;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * The main file for the client-side implementation of Noxesium.
@@ -59,9 +75,15 @@ public class NoxesiumMod implements ClientModInitializer {
      */
     private boolean initialized = false;
 
+    /**
+     * The mapping of cached shaders.
+     */
+    @Nullable
+    private GameRenderer.ResourceCache cachedShaders = null;
+
     private final NoxesiumConfig config = NoxesiumConfig.load();
     private final Logger logger = LoggerFactory.getLogger("Noxesium");
-    
+
     /**
      * Returns the known Noxesium instance.
      */
@@ -84,12 +106,25 @@ public class NoxesiumMod implements ClientModInitializer {
     }
 
     /**
+     * Returns a cache with all shaders in the Sodium namespace.
+     */
+    @Nullable
+    public GameRenderer.ResourceCache getCachedShaders() {
+        return cachedShaders;
+    }
+
+    /**
      * Adds a new module to the list of modules that should have
      * their hooks called. Available for other mods to use.
      */
     public void registerModule(NoxesiumModule module) {
         modules.put(module.getClass(), module);
         module.onStartup();
+
+        // Run onGroupRegistered for registered groups
+        for (var group : NoxesiumPackets.getRegisteredGroups()) {
+            module.onGroupRegistered(group);
+        }
     }
 
     /**
@@ -137,6 +172,7 @@ public class NoxesiumMod implements ClientModInitializer {
         registerModule(new CustomServerCreativeItems());
         registerModule(new ExtraEntityDataModule());
         registerModule(new QibBehaviorModule());
+        registerModule(new SpatialDebuggingModule());
 
         // Every time the client joins a server we send over information on the version being used,
         // we initialize when both packets are known ad we are in the PLAY phase, whenever both have
@@ -150,15 +186,14 @@ public class NoxesiumMod implements ClientModInitializer {
 
         // Call disconnection hooks
         ClientPlayConnectionEvents.DISCONNECT.register((ignored1, ignored2) -> {
-            // Reset the current max protocol version
-            currentMaxProtocol = ProtocolVersion.VERSION;
-            initialized = false;
+            uninitialize();
+        });
 
-            // Handle quitting the server
-            modules.values().forEach(NoxesiumModule::onQuitServer);
-
-            // Unregister additional packets
-            NoxesiumPackets.unregisterPackets();
+        // Re-initialize when moving in/out of the config phase, we assume any server
+        // running a proxy that doesn't use the configuration phase between servers
+        // has their stuff set up well enough to remember the client's information.
+        ClientConfigurationConnectionEvents.START.register((ignored1, ignored2) -> {
+            uninitialize();
         });
 
         // Register all universal messaging channels
@@ -166,6 +201,74 @@ public class NoxesiumMod implements ClientModInitializer {
 
         // Register the resource listener
         ResourceManagerHelper.get(PackType.CLIENT_RESOURCES).registerReloadListener(new NoxesiumReloadListener());
+
+        // Trigger registration of all server and entity rules
+        Object ignored = ServerRules.DISABLE_SPIN_ATTACK_COLLISIONS;
+        ignored = ExtraEntityData.DISABLE_BUBBLES;
+
+        // Listen to shaders that are loaded and cache them
+        ResourceManagerHelper
+            .get(PackType.CLIENT_RESOURCES)
+            .registerReloadListener(
+                new SimpleResourceReloadListener<Void>() {
+                    @Override
+                    public ResourceLocation getFabricId() {
+                        return ResourceLocation.fromNamespaceAndPath(ProtocolVersion.NAMESPACE, "shaders");
+                    }
+
+                    @Override
+                    public CompletableFuture<Void> load(ResourceManager manager, ProfilerFiller profiler, Executor executor) {
+                        return CompletableFuture.supplyAsync(() -> {
+                            var map = manager.listResources(
+                                "shaders",
+                                folder -> {
+                                    // We include all namespaces because you need to be able to import shaders from elsewhere!
+                                    var s = folder.getPath();
+                                    return s.endsWith(".json")
+                                        || s.endsWith(Program.Type.FRAGMENT.getExtension())
+                                        || s.endsWith(Program.Type.VERTEX.getExtension())
+                                        || s.endsWith(".glsl");
+                                }
+                            );
+                            var map1 = new HashMap<ResourceLocation, Resource>();
+                            map.forEach((key, value) -> {
+                                try (InputStream inputstream = value.open()) {
+                                    byte[] abyte = inputstream.readAllBytes();
+                                    map1.put(ResourceLocation.fromNamespaceAndPath(key.getNamespace(), key.getPath().substring("shaders/".length())), new Resource(value.source(), () -> new ByteArrayInputStream(abyte)));
+                                } catch (Exception exception) {
+                                    getLogger().warn("Failed to read resource {}", key, exception);
+                                }
+                            });
+
+                            // Save the shaders here instead of in apply so we go before any other resource re-loader!
+                            cachedShaders = new GameRenderer.ResourceCache(manager, map1);
+                            return null;
+                        });
+                    }
+
+                    @Override
+                    public CompletableFuture<Void> apply(Void data, ResourceManager manager, ProfilerFiller profiler, Executor executor) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                }
+            );
+
+        // Run rebuilds on a separate thread to not destroy fps unnecessarily
+        var rebuildThread = new Thread("Noxesium Spatial Container Rebuild Thread") {
+            @Override
+            public void run() {
+                while (true) {
+                    try {
+                        Thread.sleep(2500);
+                        SpatialInteractionEntityTree.rebuild();
+                    } catch (InterruptedException ex) {
+                        return;
+                    }
+                }
+            }
+        };
+        rebuildThread.setDaemon(true);
+        rebuildThread.start();
     }
 
     /**
@@ -176,7 +279,7 @@ public class NoxesiumMod implements ClientModInitializer {
         if (initialized) return;
 
         // Don't allow if the server doesn't support Noxesium
-        if (!ClientPlayNetworking.canSend(NoxesiumPackets.CLIENT_INFO.id())) return;
+        if (!ClientPlayNetworking.canSend(NoxesiumPackets.SERVER_CLIENT_INFO.id())) return;
 
         // Check if the connection has been established first, just in case
         if (Minecraft.getInstance().getConnection() != null) {
@@ -195,6 +298,21 @@ public class NoxesiumMod implements ClientModInitializer {
     }
 
     /**
+     * Un-initializes the connection with the server.
+     */
+    private void uninitialize() {
+        // Reset the current max protocol version
+        currentMaxProtocol = ProtocolVersion.VERSION;
+        initialized = false;
+
+        // Handle quitting the server
+        modules.values().forEach(NoxesiumModule::onQuitServer);
+
+        // Unregister additional packets
+        NoxesiumPackets.unregisterPackets();
+    }
+
+    /**
      * Sends a packet to the server containing the GUI scale of the client which
      * allows servers to more accurately adapt their UI to clients.
      */
@@ -206,15 +324,15 @@ public class NoxesiumMod implements ClientModInitializer {
         var options = Minecraft.getInstance().options;
 
         new ServerboundClientSettingsPacket(
-                new ClientSettings(
-                        options.guiScale().get(),
-                        window.getGuiScale(),
-                        window.getGuiScaledWidth(),
-                        window.getGuiScaledHeight(),
-                        Minecraft.getInstance().isEnforceUnicode(),
-                        options.touchscreen().get(),
-                        options.notificationDisplayTime().get()
-                )
+            new ClientSettings(
+                options.guiScale().get(),
+                window.getGuiScale(),
+                window.getGuiScaledWidth(),
+                window.getGuiScaledHeight(),
+                Minecraft.getInstance().isEnforceUnicode(),
+                options.touchscreen().get(),
+                options.notificationDisplayTime().get()
+            )
         ).send();
     }
 }

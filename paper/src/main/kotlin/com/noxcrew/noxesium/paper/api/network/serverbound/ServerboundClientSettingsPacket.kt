@@ -2,20 +2,19 @@ package com.noxcrew.noxesium.paper.api.network.serverbound
 
 import com.noxcrew.noxesium.api.protocol.ClientSettings
 import com.noxcrew.noxesium.paper.api.network.NoxesiumPackets
-import com.noxcrew.noxesium.paper.api.network.serverbound.ServerboundNoxesiumPacket
-import net.minecraft.network.FriendlyByteBuf
+import net.minecraft.network.RegistryFriendlyByteBuf
 import org.bukkit.entity.Player
 
 /**
  * Sent to the server to inform it about various settings configured by the client,
  * mostly geared towards the size of their GUI and other visual-related settings.
  */
-public class ServerboundClientSettingsPacket(
+public data class ServerboundClientSettingsPacket(
     public val settings: ClientSettings,
 ) : ServerboundNoxesiumPacket(NoxesiumPackets.SERVER_CLIENT_SETTINGS) {
 
     public constructor(
-        buffer: FriendlyByteBuf,
+        buffer: RegistryFriendlyByteBuf,
         player: Player,
         protocolVersion: Int,
     ) : this(
